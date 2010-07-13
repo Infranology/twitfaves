@@ -1,0 +1,5 @@
+<?php  // $Id$
+
+function twitfaves_uninstall() {
+  variable_del('twitfaves');
+}

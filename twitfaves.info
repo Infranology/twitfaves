@@ -1,0 +1,4 @@
+; $Id$
+name = TwitFaves
+description = Outputs a sidebar block with a list of favorited tweets.
+core = 6.x

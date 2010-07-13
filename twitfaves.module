@@ -1,0 +1,127 @@
+<?php  // $Id$
+
+/**
+ * Implementation of hook_block().
+ *
+ * Generates a block with the user's favorite tweets.
+ */
+function twitfaves_block($op = 'list', $delta = 0, $edit = array()) {
+  switch ($op) {
+    case 'list':
+      $blocks['twitfaves']['info'] = t('Favorite tweets');
+      return $blocks;
+      break;
+
+    case 'configure':
+      $form['twitfaves_screen_name'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Twitter screen name'),
+        '#default_value' => variable_get('twitfaves_screen_name', 'lullabot'),
+      );
+
+      // Create an array of options, but remove zero.
+      $options = range(0, 20);
+      unset($options[0]);
+
+      $form['twitfaves_count'] = array(
+        '#type' => 'select',
+        '#title' => t('Number of Tweets'),
+        '#default_value' => variable_get('twitfaves_count', 3),
+        '#options' => $options,
+      );
+
+      $options = range(0, 60);
+      unset($options[0]);
+
+      $form['twitfaves_interval'] = array(
+        '#type' => 'select',
+        '#title' => t('Update Interval'),
+        '#default_value' => variable_get('twitfaves_interval', 60),
+        '#field_suffix' => t('Minutes'),
+        '#options' => $options,
+      );
+
+      $form['twitfaves_link_urls'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Link URLs'),
+        '#default_value' => variable_get('twitfaves_link_urls', TRUE),
+      );
+
+      return $form;
+
+    case 'save':
+      variable_set('twitfaves_screen_name', $edit['twitfaves_screen_name']);
+      variable_set('twitfaves_count', $edit['twitfaves_count']);
+      variable_set('twitfaves_interval', $edit['twitfaves_interval']);
+      variable_set('twitfaves_link_urls', $edit['twitfaves_link_urls']);
+      variable_set('twitfaves_filter', $edit['twitfaves_filter']);
+      cache_clear_all('twitfaves', 'cache');
+      break;
+
+    case 'view':
+      $screen_name = variable_get('twitfaves_screen_name', 'lullabot');
+      $count = variable_get('twitfaves_count', 3);
+      if ($tweets = twitfaves_generate($screen_name, $count)) {
+        $block['subject'] = '';
+        $block['content'] = theme('twitfaves', $screen_name, $tweets);
+        return $block;
+      }
+      break;
+  }
+}
+
+/**
+ * Preprocess Twitfaves.tpl.php
+ */
+function twitfaves_preprocess_twitfaves(&$vars) {
+  $vars['follow_link'] = l(t('Follow Our Tweets'), 'http://twitter.com/'. variable_get('twitfaves_screen_name', 'lullabot'));
+}
+
+/**
+ * Does the heavy lifting, spits out formatted HTML.
+ */
+function twitfaves_generate($screen_name, $count = 3) {
+  $cached = cache_get('twitfaves');
+  if (empty($cached->data)) {
+    $tweets = array();
+    $response = drupal_http_request('http://api.twitter.com/1/favorites/' . $screen_name . '.xml');
+    if ($response->code == 200) {
+      $xml = new SimpleXMLElement($response->data);
+      for ($i = 0; ($i < count($xml->status)) && ($i < $count); $i++) {
+        $tweets[] = _twitfaves_extract($xml->status[$i]);
+      }
+      cache_set('twitfaves', $tweets, 'cache', time() + (variable_get('twitfaves_interval', 60) * 60));
+    }
+  }
+  else {
+    $tweets = $cached->data;
+  }
+  return $tweets;
+}
+
+function _twitfaves_extract($xml) {
+  $tweet = new stdClass();
+  $tweet->url = 'http://twitter.com/' . $xml->user->screen_name .'/status/'. $xml->id;
+  $tweet->screen_name = strval($xml->user->screen_name);
+  $tweet->image_url = strval($xml->user->profile_image_url);
+  $tweet->timestamp = strtotime($xml->created_at);
+  $tweet->text = strval($xml->text);
+  
+  if (variable_get('twitfaves_link_urls', TRUE)) {
+    $tweet->text = _filter_url($tweet->text, 1);
+  }
+  
+  return $tweet;
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function twitfaves_theme() {
+  return array(
+    'twitfaves' => array(
+      'arguments' => array('screen_name' => '', 'tweets' => array()),
+      'template' => 'twitfaves',
+    ),
+  );
+}
